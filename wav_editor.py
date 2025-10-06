@@ -17,10 +17,11 @@ class AudioEditor:
 
         self.audio = None
         self.filepath = None
-        self.selection = [0, 0]
-        self.is_playing = False
+        self.selection = [0, 0]  # 選択範囲（ms）
         self.is_looping = False
+        self.play_thread = None
 
+        # GUIボタン
         frame = tk.Frame(root)
         frame.pack(pady=10)
         tk.Button(frame, text="Open WAV", command=self.open_wav).grid(row=0, column=0, padx=5)
@@ -30,6 +31,16 @@ class AudioEditor:
         tk.Button(frame, text="Save WAV", command=self.save_wav).grid(row=0, column=4, padx=5)
         tk.Button(frame, text="Convert to OGG", command=self.convert_to_ogg).grid(row=0, column=5, padx=5)
 
+        # 音量スライダー
+        vol_frame = tk.Frame(root)
+        vol_frame.pack(pady=5)
+        tk.Label(vol_frame, text="Volume:").pack(side=tk.LEFT)
+        self.volume_slider = tk.Scale(vol_frame, from_=0, to=100, orient=tk.HORIZONTAL, command=self.change_volume)
+        self.volume_slider.set(50)  # デフォルト50%
+        self.volume_slider.pack(side=tk.LEFT)
+        self.volume_db = -6.0  # デフォルト音量下げ目（50%相当）
+
+        # 選択範囲表示
         range_frame = tk.Frame(root)
         range_frame.pack(pady=5)
         tk.Label(range_frame, text="Start (ms):").grid(row=0, column=0)
@@ -39,16 +50,22 @@ class AudioEditor:
         self.end_entry = tk.Entry(range_frame, width=10)
         self.end_entry.grid(row=0, column=3, padx=5)
 
+        # 波形表示
         self.fig, self.ax = plt.subplots(figsize=(8, 3))
         self.canvas = FigureCanvasTkAgg(self.fig, master=root)
         self.canvas.get_tk_widget().pack()
-
         self.canvas.mpl_connect('button_press_event', self.on_click)
         self.canvas.mpl_connect('button_release_event', self.on_release)
         self.start_x = None
+        self.span_patch = None
 
-        # GUI終了イベントのハンドラ登録
+        # GUI終了時処理
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def change_volume(self, val):
+        val = int(val)
+        # Pydub の dBスケールに変換（0-100% → -30dB〜0dBくらい）
+        self.volume_db = -30 + (val / 100) * 30
 
     def open_wav(self):
         path = filedialog.askopenfilename(filetypes=[("WAV Files", "*.wav")])
@@ -73,17 +90,30 @@ class AudioEditor:
         if not self.audio or self.start_x is None or not event.xdata:
             return
         x1, x2 = sorted([self.start_x, event.xdata])
-        duration_ms = len(self.audio)
         total_samples = len(self.audio.get_array_of_samples())
-        start_ms = x1 / total_samples * duration_ms
-        end_ms = x2 / total_samples * duration_ms
-        self.selection = [int(start_ms), int(end_ms)]
+        duration_ms = len(self.audio)
+        start_ms = int(x1 / total_samples * duration_ms)
+        end_ms = int(x2 / total_samples * duration_ms)
+        self.selection = [start_ms, end_ms]
         self.start_entry.delete(0, tk.END)
-        self.start_entry.insert(0, str(int(start_ms)))
+        self.start_entry.insert(0, str(start_ms))
         self.end_entry.delete(0, tk.END)
-        self.end_entry.insert(0, str(int(end_ms)))
-        self.ax.axvspan(x1, x2, color='red', alpha=0.3)
+        self.end_entry.insert(0, str(end_ms))
+
+        if self.span_patch:
+            self.span_patch.remove()
+        self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
         self.canvas.draw()
+
+    def _play_segment(self, segment):
+        # 音量調整
+        seg = segment + self.volume_db
+        with io.BytesIO() as buf:
+            seg.export(buf, format='wav')
+            buf.seek(0)
+            data, samplerate = sf.read(buf, dtype='float32')
+            sd.play(data, samplerate)
+            sd.wait()
 
     def play_selected(self):
         if not self.audio:
@@ -91,7 +121,10 @@ class AudioEditor:
         start = int(self.start_entry.get() or 0)
         end = int(self.end_entry.get() or len(self.audio))
         segment = self.audio[start:end]
-        threading.Thread(target=self._play_segment, args=(segment,), daemon=True).start()
+        if self.play_thread and self.play_thread.is_alive():
+            self.stop_audio()
+        self.play_thread = threading.Thread(target=self._play_segment, args=(segment,), daemon=True)
+        self.play_thread.start()
 
     def loop_selected(self):
         if not self.audio:
@@ -100,21 +133,15 @@ class AudioEditor:
         end = int(self.end_entry.get() or len(self.audio))
         segment = self.audio[start:end]
         self.is_looping = True
-        threading.Thread(target=self._loop_segment, args=(segment,), daemon=True).start()
 
-    def _play_segment(self, segment):
-        self.is_playing = True
-        with io.BytesIO() as buf:
-            segment.export(buf, format='wav')
-            buf.seek(0)
-            data, samplerate = sf.read(buf, dtype='float32')
-            sd.play(data, samplerate)
-            sd.wait()
-        self.is_playing = False
+        def loop_thread():
+            while self.is_looping:
+                self._play_segment(segment)
 
-    def _loop_segment(self, segment):
-        while self.is_looping:
-            self._play_segment(segment)
+        if self.play_thread and self.play_thread.is_alive():
+            self.stop_audio()
+        self.play_thread = threading.Thread(target=loop_thread, daemon=True)
+        self.play_thread.start()
 
     def stop_audio(self):
         self.is_looping = False
@@ -146,3 +173,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = AudioEditor(root)
     root.mainloop()
+
