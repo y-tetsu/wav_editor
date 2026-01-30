@@ -23,6 +23,7 @@ class AudioEditor:
         self.play_thread = None
         self.loading = False  # 読み込み中フラグ
         self.stream = None  # 音声ストリーム
+        self.is_playing = False  # 再生中フラグ
 
         # GUIボタン
         frame = tk.Frame(root)
@@ -148,7 +149,7 @@ class AudioEditor:
         messagebox.showerror("Error", f"Failed to load WAV file: {error_msg}")
 
     def on_motion(self, event):
-        if not self.audio or self.start_x is None or not event.xdata:
+        if self.is_playing or not self.audio or self.start_x is None or not event.xdata:
             return
         # ドラッグ中のスパンを更新
         x1, x2 = sorted([self.start_x, event.xdata])
@@ -158,7 +159,7 @@ class AudioEditor:
         self.canvas.draw()
 
     def on_click(self, event):
-        if not self.audio or not event.xdata:
+        if self.is_playing or not self.audio or not event.xdata:
             return
         self.start_x = event.xdata
         # 既存のスパンを削除
@@ -167,7 +168,7 @@ class AudioEditor:
             self.span_patch = None
 
     def on_release(self, event):
-        if not self.audio or self.start_x is None:
+        if self.is_playing or not self.audio or self.start_x is None:
             return
         # 波形外でUpしても確定
         if event.xdata is None:
@@ -188,7 +189,7 @@ class AudioEditor:
         self.start_x = None  # 選択状態リセット
 
     def update_selection_span(self):
-        if not self.audio:
+        if self.is_playing or not self.audio:
             return
         try:
             start_ms = int(self.start_entry.get())
