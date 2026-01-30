@@ -96,9 +96,13 @@ class AudioEditor:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def on_resize(self, event):
-        if event.widget == self.root and self.audio:
-            self.redraw_waveform()
-            self.canvas.draw()
+        if event.widget == self.root:
+            # ウィンドウサイズに合わせてFigureサイズを更新
+            width_inches = self.root.winfo_width() / 100  # 簡易変換
+            height_inches = self.root.winfo_height() / 100
+            if width_inches > 0 and height_inches > 0:
+                self.fig.set_size_inches(width_inches, height_inches)
+                self.canvas.draw()
 
     def redraw_waveform(self):
         if not self.audio:
@@ -116,6 +120,7 @@ class AudioEditor:
             x1 = self.selection[0] / duration_ms * total_samples
             x2 = self.selection[1] / duration_ms * total_samples
             self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
+        self.canvas.draw()
 
     def change_volume(self, val):
         val = int(val)
