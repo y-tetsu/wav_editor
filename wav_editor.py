@@ -75,6 +75,12 @@ class AudioEditor:
         self.end_entry = tk.Entry(range_frame, width=10)
         self.end_entry.grid(row=0, column=3, padx=5)
 
+        # テキストボックスの変更を検知して選択範囲を更新
+        self.start_entry.bind('<KeyRelease>', lambda e: self.update_selection_span())
+        self.start_entry.bind('<FocusOut>', lambda e: self.update_selection_span())
+        self.end_entry.bind('<KeyRelease>', lambda e: self.update_selection_span())
+        self.end_entry.bind('<FocusOut>', lambda e: self.update_selection_span())
+
         # 波形表示
         self.fig, self.ax = plt.subplots(figsize=(8, 3))
         self.canvas = FigureCanvasTkAgg(self.fig, master=root)
@@ -163,6 +169,40 @@ class AudioEditor:
             self.span_patch.remove()
         self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
         self.canvas.draw()
+
+    def update_selection_span(self):
+        if not self.audio:
+            return
+        try:
+            start_ms = int(self.start_entry.get())
+            end_ms = int(self.end_entry.get())
+            # 無効な値の補正
+            if start_ms < 0:
+                start_ms = 0
+            if end_ms < start_ms:
+                end_ms = start_ms
+            duration_ms = len(self.audio)
+            if start_ms > duration_ms:
+                start_ms = duration_ms
+            if end_ms > duration_ms:
+                end_ms = duration_ms
+            # エントリを更新
+            self.start_entry.delete(0, tk.END)
+            self.start_entry.insert(0, str(start_ms))
+            self.end_entry.delete(0, tk.END)
+            self.end_entry.insert(0, str(end_ms))
+            self.selection = [start_ms, end_ms]
+            # 波形のスパンを更新
+            if self.span_patch:
+                self.span_patch.remove()
+            total_samples = len(self.audio.get_array_of_samples())
+            x1 = start_ms / duration_ms * total_samples
+            x2 = end_ms / duration_ms * total_samples
+            self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
+            self.canvas.draw()
+        except ValueError:
+            # 無効な入力は無視
+            pass
 
     def _play_segment(self, segment, loop=False):
         # データを準備
