@@ -63,7 +63,7 @@ class AudioEditor:
         self.volume_slider = tk.Scale(vol_frame, from_=0, to=100, orient=tk.HORIZONTAL, command=self.change_volume)
         self.volume_slider.set(50)  # デフォルト50%
         self.volume_slider.pack(side=tk.LEFT)
-        self.volume_db = -6.0  # デフォルト音量（50%相当）
+        self.volume_db = 0.0  # デフォルト音量（50%相当、従来の100%相当）
 
         # 選択範囲表示
         range_frame = tk.Frame(root)
@@ -89,8 +89,8 @@ class AudioEditor:
 
     def change_volume(self, val):
         val = int(val)
-        # Pydub の dBスケールに変換（0-100% → -12dB〜0dB）
-        self.volume_db = -12 + (val / 100) * 12
+        # Pydub の dBスケールに変換（0-100% → -6dB〜+6dB）
+        self.volume_db = -6 + (val / 100) * 12
 
     def open_wav(self):
         if self.loading:
