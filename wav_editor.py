@@ -85,7 +85,7 @@ class AudioEditor:
         # 波形表示
         self.fig, self.ax = plt.subplots(figsize=(8, 3))
         self.canvas = FigureCanvasTkAgg(self.fig, master=root)
-        self.canvas.get_tk_widget().pack()
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self.canvas.mpl_connect('button_press_event', self.on_click)
         self.canvas.mpl_connect('motion_notify_event', self.on_motion)
         self.canvas.mpl_connect('button_release_event', self.on_release)
@@ -94,6 +94,28 @@ class AudioEditor:
 
         # GUI終了時処理
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def on_resize(self, event):
+        if event.widget == self.root and self.audio:
+            self.redraw_waveform()
+            self.canvas.draw()
+
+    def redraw_waveform(self):
+        if not self.audio:
+            return
+        self.ax.clear()
+        samples = np.array(self.audio.get_array_of_samples())
+        if self.audio.channels == 2:
+            samples = samples.reshape((-1, 2))[:, 0]
+        self.ax.plot(samples, color='blue')
+        self.ax.set_title(self.filepath or "WAV File")
+        # 選択範囲のスパンを再描画
+        if self.span_patch:
+            total_samples = len(self.audio.get_array_of_samples())
+            duration_ms = len(self.audio)
+            x1 = self.selection[0] / duration_ms * total_samples
+            x2 = self.selection[1] / duration_ms * total_samples
+            self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
 
     def change_volume(self, val):
         val = int(val)
@@ -120,24 +142,21 @@ class AudioEditor:
                 samples = np.array(self.audio.get_array_of_samples())
                 if self.audio.channels == 2:
                     samples = samples.reshape((-1, 2))[:, 0]
-                self.root.after(0, lambda: self.update_waveform(samples, path))
+                self.root.after(0, lambda: self.redraw_waveform())
+                self.root.after(0, lambda: self.finish_loading())
             except Exception as e:
                 self.root.after(0, lambda: self.show_error(str(e)))
 
         threading.Thread(target=load_audio, daemon=True).start()
 
-    def update_waveform(self, samples, path):
-        self.ax.clear()
-        self.ax.plot(samples, color='blue')
-        self.ax.set_title(path)
-        self.canvas.draw()
+    def finish_loading(self):
         self.progress.stop()
         self.progress.pack_forget()
         self.status_label.config(text="WAV file loaded successfully")
         for btn in self.buttons:
             btn.config(state=tk.NORMAL)
         self.loading = False
-        messagebox.showinfo("Loaded", f"WAV file '{path}' has been loaded successfully.")
+        messagebox.showinfo("Loaded", f"WAV file '{self.filepath}' has been loaded successfully.")
 
     def show_error(self, error_msg):
         self.progress.stop()
