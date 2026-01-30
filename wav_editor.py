@@ -86,6 +86,7 @@ class AudioEditor:
         self.canvas = FigureCanvasTkAgg(self.fig, master=root)
         self.canvas.get_tk_widget().pack()
         self.canvas.mpl_connect('button_press_event', self.on_click)
+        self.canvas.mpl_connect('motion_notify_event', self.on_motion)
         self.canvas.mpl_connect('button_release_event', self.on_release)
         self.start_x = None
         self.span_patch = None
@@ -146,14 +147,31 @@ class AudioEditor:
         self.loading = False
         messagebox.showerror("Error", f"Failed to load WAV file: {error_msg}")
 
+    def on_motion(self, event):
+        if not self.audio or self.start_x is None or not event.xdata:
+            return
+        # ドラッグ中のスパンを更新
+        x1, x2 = sorted([self.start_x, event.xdata])
+        if self.span_patch:
+            self.span_patch.remove()
+        self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
+        self.canvas.draw()
+
     def on_click(self, event):
         if not self.audio or not event.xdata:
             return
         self.start_x = event.xdata
+        # 既存のスパンを削除
+        if self.span_patch:
+            self.span_patch.remove()
+            self.span_patch = None
 
     def on_release(self, event):
-        if not self.audio or self.start_x is None or not event.xdata:
+        if not self.audio or self.start_x is None:
             return
+        # 波形外でUpしても確定
+        if event.xdata is None:
+            event.xdata = self.start_x  # 仮にstart_xを使う
         x1, x2 = sorted([self.start_x, event.xdata])
         total_samples = len(self.audio.get_array_of_samples())
         duration_ms = len(self.audio)
@@ -165,10 +183,9 @@ class AudioEditor:
         self.end_entry.delete(0, tk.END)
         self.end_entry.insert(0, str(end_ms))
 
-        if self.span_patch:
-            self.span_patch.remove()
-        self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
+        # スパンは既にon_motionで描画されているので、更新不要
         self.canvas.draw()
+        self.start_x = None  # 選択状態リセット
 
     def update_selection_span(self):
         if not self.audio:
