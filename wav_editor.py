@@ -24,6 +24,7 @@ class AudioEditor:
         self.loading = False  # 読み込み中フラグ
         self.stream = None  # 音声ストリーム
         self.is_playing = False  # 再生中フラグ
+        self.downsample_factor = 100  # ダウンサンプリング係数
 
         # GUIボタン
         frame = tk.Frame(root)
@@ -97,11 +98,19 @@ class AudioEditor:
 
     def on_resize(self, event):
         if event.widget == self.root:
+            # ダウンサンプリング係数をウィンドウサイズに応じて調整
+            if self.audio:
+                width_pixels = self.root.winfo_width()
+                desired_points = width_pixels * 2  # 幅に応じてポイント数を調整
+                total_samples = len(self.audio.get_array_of_samples())
+                self.downsample_factor = max(1, total_samples // desired_points)
             # ウィンドウサイズに合わせてFigureサイズを更新
             width_inches = self.root.winfo_width() / 100  # 簡易変換
             height_inches = self.root.winfo_height() / 100
             if width_inches > 0 and height_inches > 0:
                 self.fig.set_size_inches(width_inches, height_inches)
+                if self.audio:
+                    self.redraw_waveform()
                 self.canvas.draw()
 
     def redraw_waveform(self):
@@ -111,14 +120,15 @@ class AudioEditor:
         samples = np.array(self.audio.get_array_of_samples())
         if self.audio.channels == 2:
             samples = samples.reshape((-1, 2))[:, 0]
+        samples = samples[::self.downsample_factor]  # ダウンサンプリング
         self.ax.plot(samples, color='blue')
         self.ax.set_title(self.filepath or "WAV File")
         # 選択範囲のスパンを再描画
         if self.span_patch:
             total_samples = len(self.audio.get_array_of_samples())
             duration_ms = len(self.audio)
-            x1 = self.selection[0] / duration_ms * total_samples
-            x2 = self.selection[1] / duration_ms * total_samples
+            x1 = (self.selection[0] / duration_ms * total_samples) / self.downsample_factor
+            x2 = (self.selection[1] / duration_ms * total_samples) / self.downsample_factor
             self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
         self.canvas.draw()
 
@@ -200,8 +210,8 @@ class AudioEditor:
         x1, x2 = sorted([self.start_x, event.xdata])
         total_samples = len(self.audio.get_array_of_samples())
         duration_ms = len(self.audio)
-        start_ms = int(x1 / total_samples * duration_ms)
-        end_ms = int(x2 / total_samples * duration_ms)
+        start_ms = int(x1 * self.downsample_factor / total_samples * duration_ms)
+        end_ms = int(x2 * self.downsample_factor / total_samples * duration_ms)
         self.selection = [start_ms, end_ms]
         self.start_entry.delete(0, tk.END)
         self.start_entry.insert(0, str(start_ms))
@@ -238,8 +248,8 @@ class AudioEditor:
             if self.span_patch:
                 self.span_patch.remove()
             total_samples = len(self.audio.get_array_of_samples())
-            x1 = start_ms / duration_ms * total_samples
-            x2 = end_ms / duration_ms * total_samples
+            x1 = (start_ms / duration_ms * total_samples) / self.downsample_factor
+            x2 = (end_ms / duration_ms * total_samples) / self.downsample_factor
             self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
             self.canvas.draw()
         except ValueError:
