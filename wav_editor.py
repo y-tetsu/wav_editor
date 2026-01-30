@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
+import tkinter.ttk as ttk
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
@@ -20,16 +21,39 @@ class AudioEditor:
         self.selection = [0, 0]  # 選択範囲（ms）
         self.is_looping = False
         self.play_thread = None
+        self.loading = False  # 読み込み中フラグ
 
         # GUIボタン
         frame = tk.Frame(root)
         frame.pack(pady=10)
-        tk.Button(frame, text="Open WAV", command=self.open_wav).grid(row=0, column=0, padx=5)
-        tk.Button(frame, text="Play Selected", command=self.play_selected).grid(row=0, column=1, padx=5)
-        tk.Button(frame, text="Loop Selected", command=self.loop_selected).grid(row=0, column=2, padx=5)
-        tk.Button(frame, text="Stop", command=self.stop_audio).grid(row=0, column=3, padx=5)
-        tk.Button(frame, text="Save WAV", command=self.save_wav).grid(row=0, column=4, padx=5)
-        tk.Button(frame, text="Convert to OGG", command=self.convert_to_ogg).grid(row=0, column=5, padx=5)
+        self.buttons = []
+        btn_open = tk.Button(frame, text="Open WAV", command=self.open_wav)
+        btn_open.grid(row=0, column=0, padx=5)
+        self.buttons.append(btn_open)
+        btn_play = tk.Button(frame, text="Play Selected", command=self.play_selected)
+        btn_play.grid(row=0, column=1, padx=5)
+        self.buttons.append(btn_play)
+        btn_loop = tk.Button(frame, text="Loop Selected", command=self.loop_selected)
+        btn_loop.grid(row=0, column=2, padx=5)
+        self.buttons.append(btn_loop)
+        btn_stop = tk.Button(frame, text="Stop", command=self.stop_audio)
+        btn_stop.grid(row=0, column=3, padx=5)
+        self.buttons.append(btn_stop)
+        btn_save = tk.Button(frame, text="Save WAV", command=self.save_wav)
+        btn_save.grid(row=0, column=4, padx=5)
+        self.buttons.append(btn_save)
+        btn_convert = tk.Button(frame, text="Convert to OGG", command=self.convert_to_ogg)
+        btn_convert.grid(row=0, column=5, padx=5)
+        self.buttons.append(btn_convert)
+
+        # ステータスラベル
+        self.status_label = tk.Label(root, text="Ready")
+        self.status_label.pack(pady=5)
+
+        # プログレスバー
+        self.progress = ttk.Progressbar(root, orient="horizontal", mode="indeterminate")
+        self.progress.pack(fill=tk.X, padx=10, pady=5)
+        self.progress.pack_forget()  # 初期は非表示
 
         # 音量スライダー
         vol_frame = tk.Frame(root)
@@ -68,18 +92,52 @@ class AudioEditor:
         self.volume_db = -30 + (val / 100) * 30
 
     def open_wav(self):
+        if self.loading:
+            return
         path = filedialog.askopenfilename(filetypes=[("WAV Files", "*.wav")])
         if not path:
             return
-        self.filepath = path
-        self.audio = AudioSegment.from_wav(path)
-        samples = np.array(self.audio.get_array_of_samples())
-        if self.audio.channels == 2:
-            samples = samples.reshape((-1, 2))[:, 0]
+        self.loading = True
+        self.status_label.config(text="Loading WAV file...")
+        self.progress.pack(fill=tk.X, padx=10, pady=5)
+        self.progress.start()
+        for btn in self.buttons:
+            btn.config(state=tk.DISABLED)
+
+        def load_audio():
+            try:
+                self.filepath = path
+                self.audio = AudioSegment.from_wav(path)
+                samples = np.array(self.audio.get_array_of_samples())
+                if self.audio.channels == 2:
+                    samples = samples.reshape((-1, 2))[:, 0]
+                self.root.after(0, lambda: self.update_waveform(samples, path))
+            except Exception as e:
+                self.root.after(0, lambda: self.show_error(str(e)))
+
+        threading.Thread(target=load_audio, daemon=True).start()
+
+    def update_waveform(self, samples, path):
         self.ax.clear()
         self.ax.plot(samples, color='blue')
         self.ax.set_title(path)
         self.canvas.draw()
+        self.progress.stop()
+        self.progress.pack_forget()
+        self.status_label.config(text="WAV file loaded successfully")
+        for btn in self.buttons:
+            btn.config(state=tk.NORMAL)
+        self.loading = False
+        messagebox.showinfo("Loaded", f"WAV file '{path}' has been loaded successfully.")
+
+    def show_error(self, error_msg):
+        self.progress.stop()
+        self.progress.pack_forget()
+        self.status_label.config(text="Error loading WAV file")
+        for btn in self.buttons:
+            btn.config(state=tk.NORMAL)
+        self.loading = False
+        messagebox.showerror("Error", f"Failed to load WAV file: {error_msg}")
 
     def on_click(self, event):
         if not self.audio or not event.xdata:
