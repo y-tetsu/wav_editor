@@ -22,6 +22,7 @@ class AudioEditor:
         self.is_looping = False
         self.play_thread = None
         self.loading = False  # 読み込み中フラグ
+        self.stream = None  # 音声ストリーム
 
         # GUIボタン
         frame = tk.Frame(root)
@@ -62,7 +63,7 @@ class AudioEditor:
         self.volume_slider = tk.Scale(vol_frame, from_=0, to=100, orient=tk.HORIZONTAL, command=self.change_volume)
         self.volume_slider.set(50)  # デフォルト50%
         self.volume_slider.pack(side=tk.LEFT)
-        self.volume_db = -6.0  # デフォルト音量下げ目（50%相当）
+        self.volume_db = -6.0  # デフォルト音量（50%相当）
 
         # 選択範囲表示
         range_frame = tk.Frame(root)
@@ -88,8 +89,8 @@ class AudioEditor:
 
     def change_volume(self, val):
         val = int(val)
-        # Pydub の dBスケールに変換（0-100% → -30dB〜0dBくらい）
-        self.volume_db = -30 + (val / 100) * 30
+        # Pydub の dBスケールに変換（0-100% → -12dB〜0dB）
+        self.volume_db = -12 + (val / 100) * 12
 
     def open_wav(self):
         if self.loading:
@@ -163,15 +164,53 @@ class AudioEditor:
         self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
         self.canvas.draw()
 
-    def _play_segment(self, segment):
-        # 音量調整
-        seg = segment + self.volume_db
-        with io.BytesIO() as buf:
-            seg.export(buf, format='wav')
-            buf.seek(0)
-            data, samplerate = sf.read(buf, dtype='float32')
-            sd.play(data, samplerate)
-            sd.wait()
+    def _play_segment(self, segment, loop=False):
+        # データを準備
+        raw_data = np.array(segment.get_array_of_samples(), dtype=np.float32)
+        if segment.channels == 2:
+            data = raw_data.reshape(-1, 2)
+        else:
+            data = raw_data.reshape(-1, 1)
+        data /= 32768.0  # normalize to -1 to 1
+        samplerate = segment.frame_rate
+        channels = segment.channels
+
+        self.current_data = data
+        self.current_index = 0
+        self.current_samplerate = samplerate
+        self.current_channels = channels
+        self.is_playing = True
+
+        self.stream = sd.OutputStream(samplerate=samplerate, channels=channels, callback=self.audio_callback)
+        self.stream.start()
+
+        if loop:
+            while self.is_looping and self.is_playing:
+                if self.current_index >= len(self.current_data):
+                    self.current_index = 0
+                sd.sleep(10)
+        else:
+            while self.stream.active and self.is_playing:
+                sd.sleep(10)
+
+        self.stream.stop()
+        self.stream = None
+        self.is_playing = False
+
+    def audio_callback(self, outdata, frames, time, status):
+        if not self.is_playing or self.current_index >= len(self.current_data):
+            outdata.fill(0)
+            return
+
+        end_index = min(self.current_index + frames, len(self.current_data))
+        chunk = self.current_data[self.current_index:end_index]
+        volume_factor = 10 ** (self.volume_db / 20)
+        outdata[:len(chunk)] = chunk * volume_factor
+        outdata[len(chunk):] = 0
+        self.current_index = end_index
+
+        if self.current_index >= len(self.current_data) and not self.is_looping:
+            self.is_playing = False
 
     def play_selected(self):
         if not self.audio:
@@ -181,7 +220,7 @@ class AudioEditor:
         segment = self.audio[start:end]
         if self.play_thread and self.play_thread.is_alive():
             self.stop_audio()
-        self.play_thread = threading.Thread(target=self._play_segment, args=(segment,), daemon=True)
+        self.play_thread = threading.Thread(target=self._play_segment, args=(segment, False), daemon=True)
         self.play_thread.start()
 
     def loop_selected(self):
@@ -193,8 +232,7 @@ class AudioEditor:
         self.is_looping = True
 
         def loop_thread():
-            while self.is_looping:
-                self._play_segment(segment)
+            self._play_segment(segment, loop=True)
 
         if self.play_thread and self.play_thread.is_alive():
             self.stop_audio()
@@ -203,6 +241,10 @@ class AudioEditor:
 
     def stop_audio(self):
         self.is_looping = False
+        self.is_playing = False
+        if self.stream:
+            self.stream.stop()
+            self.stream = None
         sd.stop()
 
     def save_wav(self):
@@ -223,6 +265,9 @@ class AudioEditor:
 
     def on_close(self):
         self.is_looping = False
+        self.is_playing = False
+        if self.stream:
+            self.stream.stop()
         sd.stop()
         self.root.destroy()
         sys.exit(0)
