@@ -25,6 +25,9 @@ class AudioEditor:
         self.stream = None  # 音声ストリーム
         self.is_playing = False  # 再生中フラグ
         self.downsample_factor = 100  # ダウンサンプリング係数
+        self.xlim = [0, 0]  # ズーム範囲 (ms)
+        self.panning = False  # パンフラグ
+        self.pan_start = None  # パン開始位置
 
         # GUIボタン
         frame = tk.Frame(root)
@@ -90,11 +93,15 @@ class AudioEditor:
         self.canvas.mpl_connect('button_press_event', self.on_click)
         self.canvas.mpl_connect('motion_notify_event', self.on_motion)
         self.canvas.mpl_connect('button_release_event', self.on_release)
+        self.canvas.mpl_connect('scroll_event', self.on_scroll)
         self.start_x = None
         self.span_patch = None
 
         # GUI終了時処理
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        # ショートカットキー
+        self.root.bind('<Control-r>', self.reset_zoom)
 
     def on_resize(self, event):
         if event.widget == self.root:
@@ -121,15 +128,17 @@ class AudioEditor:
         if self.audio.channels == 2:
             samples = samples.reshape((-1, 2))[:, 0]
         samples = samples[::self.downsample_factor]  # ダウンサンプリング
-        self.ax.plot(samples, color='blue')
+        duration_ms = len(self.audio)  # pydubのlenはms
+        time_ms = np.linspace(0, duration_ms, len(samples))
+        self.ax.plot(time_ms, samples, color='blue')
         self.ax.set_title(self.filepath or "WAV File")
+        self.ax.set_xlabel('Time (ms)')
+        if self.xlim == [0, 0]:
+            self.xlim = [0, duration_ms]
+        self.ax.set_xlim(self.xlim[0], self.xlim[1])
         # 選択範囲のスパンを再描画
         if self.span_patch:
-            total_samples = len(self.audio.get_array_of_samples())
-            duration_ms = len(self.audio)
-            x1 = (self.selection[0] / duration_ms * total_samples) / self.downsample_factor
-            x2 = (self.selection[1] / duration_ms * total_samples) / self.downsample_factor
-            self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
+            self.span_patch = self.ax.axvspan(self.selection[0], self.selection[1], color='red', alpha=0.3)
         self.canvas.draw()
 
     def change_volume(self, val):
@@ -154,6 +163,7 @@ class AudioEditor:
             try:
                 self.filepath = path
                 self.audio = AudioSegment.from_wav(path)
+                self.selection = [0, len(self.audio)]  # 初期選択範囲: 全範囲
                 samples = np.array(self.audio.get_array_of_samples())
                 if self.audio.channels == 2:
                     samples = samples.reshape((-1, 2))[:, 0]
@@ -171,6 +181,11 @@ class AudioEditor:
         for btn in self.buttons:
             btn.config(state=tk.NORMAL)
         self.loading = False
+        # 初期選択範囲をエントリに設定
+        self.start_entry.delete(0, tk.END)
+        self.start_entry.insert(0, str(int(self.selection[0])))
+        self.end_entry.delete(0, tk.END)
+        self.end_entry.insert(0, str(int(self.selection[1])))
         messagebox.showinfo("Loaded", f"WAV file '{self.filepath}' has been loaded successfully.")
 
     def show_error(self, error_msg):
@@ -185,42 +200,96 @@ class AudioEditor:
     def on_motion(self, event):
         if self.is_playing or not self.audio or self.start_x is None or not event.xdata:
             return
-        # ドラッグ中のスパンを更新
-        x1, x2 = sorted([self.start_x, event.xdata])
-        if self.span_patch:
-            self.span_patch.remove()
-        self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
-        self.canvas.draw()
+        if self.panning and self.pan_start is not None:
+            # パン
+            delta = self.pan_start - event.xdata
+            width = self.xlim[1] - self.xlim[0]
+            self.xlim[0] += delta
+            self.xlim[1] += delta
+            # 範囲をクランプ
+            duration_ms = len(self.audio)
+            self.xlim[0] = max(0, self.xlim[0])
+            self.xlim[1] = min(duration_ms, self.xlim[1])
+            if self.xlim[1] - self.xlim[0] < 1:
+                self.xlim[1] = self.xlim[0] + 1
+            self.pan_start = event.xdata
+            self.ax.set_xlim(self.xlim[0], self.xlim[1])
+            self.canvas.draw()
+        elif self.start_x is not None:
+            # 選択ドラッグ
+            x1, x2 = sorted([self.start_x, event.xdata])
+            if self.span_patch:
+                self.span_patch.remove()
+            self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
+            self.canvas.draw()
 
     def on_click(self, event):
         if self.is_playing or not self.audio or not event.xdata:
             return
-        self.start_x = event.xdata
-        # 既存のスパンを削除
-        if self.span_patch:
-            self.span_patch.remove()
-            self.span_patch = None
+        if event.button == 1:  # 左クリック: 選択開始
+            self.start_x = event.xdata
+            # 既存のスパンを削除
+            if self.span_patch:
+                self.span_patch.remove()
+                self.span_patch = None
+        elif event.button == 3:  # 右クリック: パン開始
+            self.panning = True
+            self.pan_start = event.xdata
 
     def on_release(self, event):
-        if self.is_playing or not self.audio or self.start_x is None:
+        if self.is_playing or not self.audio:
             return
-        # 波形外でUpしても確定
-        if event.xdata is None:
-            event.xdata = self.start_x  # 仮にstart_xを使う
-        x1, x2 = sorted([self.start_x, event.xdata])
-        total_samples = len(self.audio.get_array_of_samples())
-        duration_ms = len(self.audio)
-        start_ms = int(x1 * self.downsample_factor / total_samples * duration_ms)
-        end_ms = int(x2 * self.downsample_factor / total_samples * duration_ms)
-        self.selection = [start_ms, end_ms]
-        self.start_entry.delete(0, tk.END)
-        self.start_entry.insert(0, str(start_ms))
-        self.end_entry.delete(0, tk.END)
-        self.end_entry.insert(0, str(end_ms))
+        if self.panning:
+            # パン終了
+            self.panning = False
+            self.pan_start = None
+        elif self.start_x is not None:
+            # 選択確定
+            if event.xdata is None:
+                event.xdata = self.start_x
+            x1, x2 = sorted([self.start_x, event.xdata])
+            start_ms = x1
+            end_ms = x2
+            self.selection = [start_ms, end_ms]
+            self.start_entry.delete(0, tk.END)
+            self.start_entry.insert(0, str(int(start_ms)))
+            self.end_entry.delete(0, tk.END)
+            self.end_entry.insert(0, str(int(end_ms)))
+            # スパンは既にon_motionで描画されているので、更新不要
+            self.canvas.draw()
+            self.start_x = None  # 選択状態リセット
 
-        # スパンは既にon_motionで描画されているので、更新不要
+    def on_scroll(self, event):
+        if not self.audio:
+            return
+        if self.selection[0] == self.selection[1]:  # 何も選択されていない場合
+            center = len(self.audio) / 2  # 中央を中心に
+        else:
+            center = self.selection[0]  # 選択範囲のstart位置を中心にズーム
+        width = self.xlim[1] - self.xlim[0]
+        duration_ms = len(self.audio)
+        if event.button == 'up':
+            width *= 0.9  # ズームイン
+        elif event.button == 'down':
+            width *= 1.1  # ズームアウト
+        width = max(1, width)
+        if width >= duration_ms:
+            self.xlim = [0, duration_ms]  # 全体表示にリセット
+        else:
+            self.xlim = [center - width / 2, center + width / 2]
+            self.xlim[0] = max(0, self.xlim[0])
+            if event.button == 'up':  # ズームイン時は右側もclamp
+                self.xlim[1] = min(duration_ms, self.xlim[1])
+            # ズームアウト時は右側を超えてもOK
+        self.ax.set_xlim(self.xlim[0], self.xlim[1])
         self.canvas.draw()
-        self.start_x = None  # 選択状態リセット
+
+    def reset_zoom(self, event=None):
+        if self.audio:
+            duration_ms = len(self.audio)
+            self.xlim = [0, duration_ms]
+            self.ax.set_xlim(0, duration_ms)
+            self.canvas.draw()
 
     def update_selection_span(self):
         if self.is_playing or not self.audio:
@@ -361,8 +430,7 @@ class AudioEditor:
         if self.stream:
             self.stream.stop()
         sd.stop()
-        self.root.destroy()
-        sys.exit(0)
+        self.root.quit()
 
 if __name__ == "__main__":
     root = tk.Tk()
