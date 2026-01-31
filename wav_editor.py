@@ -139,6 +139,7 @@ class AudioEditor:
         # 選択範囲のスパンを再描画
         if self.span_patch:
             self.span_patch = self.ax.axvspan(self.selection[0], self.selection[1], color='red', alpha=0.3)
+        self.initial_zoom = False  # 描画後に初期状態を解除
         self.canvas.draw()
 
     def change_volume(self, val):
@@ -164,6 +165,8 @@ class AudioEditor:
                 self.filepath = path
                 self.audio = AudioSegment.from_wav(path)
                 self.selection = [0, len(self.audio)]  # 初期選択範囲: 全範囲
+                self.initial_zoom = True  # 初期ズーム状態
+                self.xlim = [0, len(self.audio)]  # 全体表示にリセット
                 samples = np.array(self.audio.get_array_of_samples())
                 if self.audio.channels == 2:
                     samples = samples.reshape((-1, 2))[:, 0]
@@ -260,29 +263,26 @@ class AudioEditor:
             self.start_x = None  # 選択状態リセット
 
     def on_scroll(self, event):
+        print(f"Scroll event: button={event.button}, xdata={event.xdata}")  # デバッグ用
         if not self.audio:
             return
-        if self.selection[0] == self.selection[1]:  # 何も選択されていない場合
-            center = len(self.audio) / 2  # 中央を中心に
-        else:
-            center = self.selection[0]  # 選択範囲のstart位置を中心にズーム
+        center = event.xdata  # マウスカーソル位置を中心に
         width = self.xlim[1] - self.xlim[0]
         duration_ms = len(self.audio)
-        if event.button == 'up':
-            width *= 0.9  # ズームイン
-        elif event.button == 'down':
-            width *= 1.1  # ズームアウト
-        width = max(1, width)
-        if width >= duration_ms:
+        if event.button == 'down':
+            width *= 0.9  # 拡大
+        elif event.button == 'up':
+            width *= 1.1  # 縮小
+        if width >= duration_ms and not getattr(self, 'initial_zoom', False):
             self.xlim = [0, duration_ms]  # 全体表示にリセット
+            self.initial_zoom = False
         else:
             self.xlim = [center - width / 2, center + width / 2]
             self.xlim[0] = max(0, self.xlim[0])
-            if event.button == 'up':  # ズームイン時は右側もclamp
-                self.xlim[1] = min(duration_ms, self.xlim[1])
-            # ズームアウト時は右側を超えてもOK
+            self.xlim[1] = min(duration_ms, self.xlim[1])
         self.ax.set_xlim(self.xlim[0], self.xlim[1])
         self.canvas.draw()
+        print(f"New xlim: {self.xlim}")  # デバッグ用
 
     def reset_zoom(self, event=None):
         if self.audio:
