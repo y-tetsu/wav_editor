@@ -166,7 +166,7 @@ class AudioEditor:
                 self.audio = AudioSegment.from_wav(path)
                 self.selection = [0, len(self.audio)]  # 初期選択範囲: 全範囲
                 self.initial_zoom = True  # 初期ズーム状態
-                self.xlim = [0, len(self.audio)]  # 全体表示にリセット
+                self.xlim = [0, 0]  # ズーム範囲 (ms)
                 samples = np.array(self.audio.get_array_of_samples())
                 if self.audio.channels == 2:
                     samples = samples.reshape((-1, 2))[:, 0]
