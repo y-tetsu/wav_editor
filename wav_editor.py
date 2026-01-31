@@ -270,16 +270,22 @@ class AudioEditor:
         width = self.xlim[1] - self.xlim[0]
         duration_ms = len(self.audio)
         if event.button == 'down':
-            width *= 0.9  # 拡大
-        elif event.button == 'up':
             width *= 1.1  # 縮小
+        elif event.button == 'up':
+            width *= 0.9  # 拡大
         if width >= duration_ms and not getattr(self, 'initial_zoom', False):
             self.xlim = [0, duration_ms]  # 全体表示にリセット
             self.initial_zoom = False
         else:
-            self.xlim = [center - width / 2, center + width / 2]
-            self.xlim[0] = max(0, self.xlim[0])
-            self.xlim[1] = min(duration_ms, self.xlim[1])
+            xlim_start = center - width / 2
+            xlim_end = center + width / 2
+            if xlim_start < 0:
+                self.xlim = [0, width]
+            elif xlim_end > duration_ms:
+                self.xlim = [duration_ms - width, duration_ms]
+            else:
+                self.xlim = [xlim_start, xlim_end]
+
         self.ax.set_xlim(self.xlim[0], self.xlim[1])
         self.canvas.draw()
         print(f"New xlim: {self.xlim}")  # デバッグ用
