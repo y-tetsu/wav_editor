@@ -20,6 +20,9 @@ class AudioEditor:
         self.start_sample = 0
         self.end_sample = 0
 
+        # ★ 再生開始位置（右クリック指定）
+        self.play_start_sample = None
+
         self.is_playing = False
         self.is_looping = False
         self.stream = None
@@ -59,6 +62,12 @@ class AudioEditor:
         self.canvas.get_tk_widget().pack()
         self.canvas.draw()
 
+        # ★ 赤線（再生開始位置）
+        self.play_start_line = None
+
+        # ★ 右クリック検出
+        self.canvas.mpl_connect("button_press_event", self.on_right_click)
+
         # ===== close hook =====
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -93,6 +102,7 @@ class AudioEditor:
 
         self.start_sample = 0
         self.end_sample = len(self.audio)
+        self.play_start_sample = None
 
         self.update_entries()
         self.draw_waveform()
@@ -117,7 +127,6 @@ class AudioEditor:
             return
 
         segment = self.audio[self.start_sample:self.end_sample]
-
         sf.write(path, segment, self.sample_rate)
         messagebox.showinfo("Saved", f"Saved selection to:\n{path}")
 
@@ -161,6 +170,13 @@ class AudioEditor:
         self.stop_audio()
         self.start_sample = 0
         self.end_sample = len(self.audio)
+
+        # ★ 再生開始位置クリア
+        self.play_start_sample = None
+        if self.play_start_line:
+            self.play_start_line.remove()
+            self.play_start_line = None
+
         self.update_entries()
         self.draw_waveform()
 
@@ -180,8 +196,33 @@ class AudioEditor:
             e = self.end_sample * 1000 / self.sample_rate
             self.ax.axvspan(s, e, color="orange", alpha=0.3)
 
+            # ★ 再生開始ライン
+            if self.play_start_sample is not None:
+                t = self.play_start_sample * 1000 / self.sample_rate
+                self.play_start_line = self.ax.axvline(t, color="red")
+
         self.ax.set_xlabel("Time (ms)")
         self.fig.tight_layout()
+        self.canvas.draw()
+
+    # =====================================================
+    # Mouse
+    # =====================================================
+
+    def on_right_click(self, event):
+        if event.button != 3 or self.audio is None or event.xdata is None:
+            return
+
+        sample = int(event.xdata * self.sample_rate / 1000)
+        sample = max(self.start_sample, min(sample, self.end_sample))
+
+        self.play_start_sample = sample
+
+        if self.play_start_line:
+            self.play_start_line.remove()
+
+        t = sample * 1000 / self.sample_rate
+        self.play_start_line = self.ax.axvline(t, color="red")
         self.canvas.draw()
 
     # =====================================================
@@ -215,13 +256,22 @@ class AudioEditor:
 
         self.stop_audio()
 
+        play_start = (
+            self.play_start_sample
+            if self.play_start_sample is not None
+            else self.start_sample
+        )
+
         segment = self.audio[self.start_sample:self.end_sample]
         if len(segment) == 0:
             return
 
         self.is_playing = True
         self.is_looping = loop
-        self.play_pos = 0
+
+        # ★ 最初の再生位置だけ右クリックを反映
+        self.play_pos = play_start - self.start_sample
+
         self.set_ui_playing(True)
 
         def callback(outdata, frames, time, status):
