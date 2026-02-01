@@ -102,6 +102,8 @@ class AudioEditor:
 
         # ショートカットキー
         self.root.bind('<Control-r>', self.reset_zoom)
+        self.root.bind('<Escape>', self.clear_selection)  # ← 追加
+
 
     def on_resize(self, event):
         if event.widget == self.root:
@@ -452,6 +454,33 @@ class AudioEditor:
             self.stream.stop()
         sd.stop()
         self.root.quit()
+
+    def clear_selection(self, event=None):
+        if not self.audio:
+            return
+
+        duration_ms = len(self.audio)
+
+        # 選択範囲を初期値に戻す
+        self.selection = [0, duration_ms]
+
+        # Entry を更新
+        self.start_entry.delete(0, tk.END)
+        self.start_entry.insert(0, "0")
+        self.end_entry.delete(0, tk.END)
+        self.end_entry.insert(0, str(duration_ms))
+
+        # スパン表示を削除
+        if self.span_patch:
+            self.span_patch.remove()
+            self.span_patch = None
+
+        # グラフを全体表示に戻す
+        self.xlim = [0, duration_ms]
+        self.ax.set_xlim(0, duration_ms)
+
+        self.canvas.draw()
+
 
 if __name__ == "__main__":
     root = tk.Tk()
