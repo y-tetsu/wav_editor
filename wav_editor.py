@@ -221,8 +221,12 @@ class AudioEditor:
             self.ax.set_xlim(self.xlim[0], self.xlim[1])
             self.canvas.draw()
         elif self.start_x is not None:
-            # 選択ドラッグ
-            x1, x2 = sorted([self.start_x, event.xdata])
+            current_x = self._get_clamped_x(event)
+            if current_x is None:
+                return
+
+            x1, x2 = sorted([self.start_x, current_x])
+
             if self.span_patch:
                 self.span_patch.remove()
             self.span_patch = self.ax.axvspan(x1, x2, color='red', alpha=0.3)
@@ -249,20 +253,48 @@ class AudioEditor:
             self.panning = False
             self.pan_start = None
         elif self.start_x is not None:
-            # 選択確定
-            if event.xdata is None:
-                event.xdata = self.start_x
-            x1, x2 = sorted([self.start_x, event.xdata])
-            start_ms = x1
-            end_ms = x2
+            current_x = self._get_clamped_x(event)
+            if current_x is None:
+                self.start_x = None
+                return
+
+            duration_ms = len(self.audio)
+
+            x1, x2 = sorted([self.start_x, current_x])
+            start_ms = max(0, x1)
+            end_ms = min(duration_ms, x2)
+
             self.selection = [start_ms, end_ms]
+
             self.start_entry.delete(0, tk.END)
             self.start_entry.insert(0, str(int(start_ms)))
             self.end_entry.delete(0, tk.END)
             self.end_entry.insert(0, str(int(end_ms)))
-            # スパンは既にon_motionで描画されているので、更新不要
+
             self.canvas.draw()
-            self.start_x = None  # 選択状態リセット
+            self.start_x = None
+
+    def _get_clamped_x(self, event):
+        duration_ms = len(self.audio)
+        left, right = self.xlim
+        bbox = self.ax.get_window_extent()
+
+        # グラフ外（Axes 外）
+        if event.inaxes != self.ax:
+            if event.x < bbox.x0:
+                return left                # 左外 → 表示左端
+            elif event.x > bbox.x1:
+                return duration_ms         # 右外 → 音声の最後
+            else:
+                return None
+
+        # Axes 内だが表示範囲オーバー
+        if event.xdata < left:
+            return left
+        if event.xdata > right:
+            return duration_ms
+
+        return event.xdata
 
     def on_scroll(self, event):
         print(f"Scroll event: button={event.button}, xdata={event.xdata}")  # デバッグ用
