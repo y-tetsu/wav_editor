@@ -54,7 +54,8 @@ class AudioEditor:
 
         self.start_entry.bind("<Return>", self.entry_confirm)
         self.end_entry.bind("<Return>", self.entry_confirm)
-        self.root.bind("<Escape>", self.reset_view)
+        self.root.bind("<Escape>", self.reset_play_start)
+        self.root.bind("<Shift-Escape>", self.reset_all)
 
         # ===== plot =====
         self.fig, self.ax = plt.subplots(figsize=(8, 3))
@@ -204,6 +205,25 @@ class AudioEditor:
         self.ax.set_xlabel("Time (ms)")
         self.fig.tight_layout()
         self.canvas.draw()
+
+    # =====================================================
+    # Key
+    # =====================================================
+    def reset_play_start(self, event=None):
+        self.stop_audio()
+        self.play_start_sample = None
+        if self.play_start_line:
+            self.play_start_line.remove()
+            self.play_start_line = None
+            self.canvas.draw()
+
+    def reset_all(self, event=None):
+        self.stop_audio()
+        self.start_sample = 0
+        self.end_sample = len(self.audio)
+        self.reset_play_start()
+        self.update_entries()
+        self.draw_waveform()
 
     # =====================================================
     # Mouse
