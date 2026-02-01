@@ -417,10 +417,25 @@ class AudioEditor:
     def save_wav(self):
         if not self.audio:
             return
-        path = filedialog.asksaveasfilename(defaultextension=".wav", filetypes=[("WAV Files", "*.wav")])
-        if path:
-            self.audio.export(path, format='wav')
-            messagebox.showinfo("Saved", f"Saved to {path}")
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".wav",
+            filetypes=[("WAV Files", "*.wav")]
+        )
+        if not path:
+            return
+
+        start, end = self.selection
+
+        # 範囲選択が有効な場合のみ、その範囲を保存
+        if 0 <= start < end <= len(self.audio):
+            segment = self.audio[start:end]
+        else:
+            # 従来どおり全体保存
+            segment = self.audio
+
+        segment.export(path, format='wav')
+        messagebox.showinfo("Saved", f"Saved to {path}")
 
     def convert_to_ogg(self):
         if not self.audio:
