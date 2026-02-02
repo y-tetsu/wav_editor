@@ -63,11 +63,12 @@ class AudioEditor:
         self.end_entry.bind("<Return>", self.entry_confirm)
         self.root.bind("<Escape>", self.reset_play_start)
         self.root.bind("<Shift-Escape>", self.reset_all)
+        self.root.bind("<Configure>", self.on_resize)
 
         # ===== plot =====
         self.fig, self.ax = plt.subplots(figsize=(8, 3))
         self.canvas = FigureCanvasTkAgg(self.fig, master=root)
-        self.canvas.get_tk_widget().pack()
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self.canvas.draw()
 
         # ★ 赤線（再生開始位置）
@@ -97,6 +98,25 @@ class AudioEditor:
         self.end_entry.config(state=state)
 
         self.btn_stop.config(state=tk.NORMAL)
+
+    def on_resize(self, event):
+        # 初期化直後のゴミイベント対策
+        if event.widget != self.root:
+            return
+
+        # Canvas の実ピクセルサイズを取得
+        canvas = self.canvas.get_tk_widget()
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+
+        if w <= 1 or h <= 1:
+            return
+
+        # DPI を考慮して Figure サイズを更新
+        dpi = self.fig.get_dpi()
+        self.fig.set_size_inches(w / dpi, h / dpi, forward=False)
+
+        self.canvas.draw_idle()
 
     # =====================================================
     # File
