@@ -230,7 +230,7 @@ class AudioEditor:
     # =====================================================
 
     def on_right_click(self, event):
-        if event.button != 3 or self.audio is None or event.xdata is None:
+        if event.button != 3 or self.audio is None or event.xdata is None or self.is_playing:
             return
 
         sample = int(event.xdata * self.sample_rate / 1000)
