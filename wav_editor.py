@@ -25,6 +25,7 @@ class AudioEditor:
 
         # ★ 再生開始位置（右クリック指定）
         self.play_start_sample = None
+        self.current_sample = None
 
         self.is_playing = False
         self.is_looping = False
@@ -279,6 +280,22 @@ class AudioEditor:
         self.fig.tight_layout()
         self.canvas.draw()
 
+    def update_playhead(self):
+        if not self.is_playing or self.current_sample is None:
+            return
+
+        t = self.current_sample * 1000 / self.sample_rate
+
+        # ★ 赤線がなければ作る
+        if self.play_start_line is None:
+            self.play_start_line = self.ax.axvline(t, color="red")
+        else:
+            self.play_start_line.set_xdata([t, t])
+
+        self.canvas.draw_idle()
+
+        self.root.after(33, self.update_playhead)
+
     # =====================================================
     # Key
     # =====================================================
@@ -325,6 +342,7 @@ class AudioEditor:
     def stop_audio(self):
         self.is_looping = False
         self.is_playing = False
+        self.current_sample = None
 
         if self.stream:
             try:
@@ -355,6 +373,12 @@ class AudioEditor:
             else self.start_sample
         )
 
+        # ★ 範囲外補正
+        if play_start < self.start_sample:
+            play_start = self.start_sample
+        elif play_start > self.end_sample:
+            play_start = self.end_sample
+
         segment = self.audio[self.start_sample:self.end_sample]
         if len(segment) == 0:
             return
@@ -364,6 +388,9 @@ class AudioEditor:
 
         # ★ 最初の再生位置だけ右クリックを反映
         self.play_pos = play_start - self.start_sample
+
+        # ★ 現在位置を初期化
+        self.current_sample = play_start
 
         self.set_ui_playing(True)
 
@@ -376,6 +403,9 @@ class AudioEditor:
 
             outdata[:n] = segment[self.play_pos:self.play_pos + n]
             outdata[n:] = 0
+
+            # ★ 現在の再生位置（グローバルサンプル）
+            self.current_sample = self.start_sample + self.play_pos
             self.play_pos += n
 
             if self.play_pos >= len(segment):
@@ -392,6 +422,7 @@ class AudioEditor:
             callback=callback
         )
         self.stream.start()
+        self.update_playhead()
 
     # =====================================================
     # Proper shutdown
