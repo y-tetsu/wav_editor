@@ -3,6 +3,9 @@ from tkinter import filedialog, messagebox
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
+from pydub import AudioSegment
+import tempfile
+
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
@@ -36,13 +39,17 @@ class AudioEditor:
         self.btn_play = tk.Button(frame, text="Play", command=self.play_selected)
         self.btn_loop = tk.Button(frame, text="Loop", command=self.loop_selected)
         self.btn_stop = tk.Button(frame, text="Stop", command=self.stop_audio)
-        self.btn_save = tk.Button(frame, text="Save Selection", command=self.save_selection)
+        self.btn_save = tk.Button(frame, text="Save WAV", command=self.save_selection)
+        self.btn_save_ogg = tk.Button(frame, text="Save OGG", command=self.save_selection_ogg)
+        self.btn_save_mp3 = tk.Button(frame, text="Save MP3", command=self.save_selection_mp3)
 
         self.btn_open.pack(side=tk.LEFT)
         self.btn_play.pack(side=tk.LEFT)
         self.btn_loop.pack(side=tk.LEFT)
         self.btn_stop.pack(side=tk.LEFT)
         self.btn_save.pack(side=tk.LEFT)
+        self.btn_save_ogg.pack(side=tk.LEFT)
+        self.btn_save_mp3.pack(side=tk.LEFT)
 
         tk.Label(frame, text="Start (ms)").pack(side=tk.LEFT)
         self.start_entry = tk.Entry(frame, width=8)
@@ -83,6 +90,8 @@ class AudioEditor:
         self.btn_play.config(state=state)
         self.btn_loop.config(state=state)
         self.btn_save.config(state=state)
+        self.btn_save_ogg.config(state=state)
+        self.btn_save_mp3.config(state=state)
 
         self.start_entry.config(state=state)
         self.end_entry.config(state=state)
@@ -113,11 +122,8 @@ class AudioEditor:
     # =====================================================
 
     def save_selection(self):
-        if self.audio is None:
-            return
-
-        if self.start_sample >= self.end_sample:
-            messagebox.showwarning("Invalid range", "Start must be smaller than End.")
+        segment = self.get_selected_segment()
+        if segment is None:
             return
 
         path = filedialog.asksaveasfilename(
@@ -127,9 +133,47 @@ class AudioEditor:
         if not path:
             return
 
-        segment = self.audio[self.start_sample:self.end_sample]
         sf.write(path, segment, self.sample_rate)
-        messagebox.showinfo("Saved", f"Saved selection to:\n{path}")
+        messagebox.showinfo("Saved", f"Saved WAV:\n{path}")
+
+    def save_selection_ogg(self):
+        self.save_with_pydub("ogg", [("OGG", "*.ogg")])
+
+    def save_selection_mp3(self):
+        self.save_with_pydub("mp3", [("MP3", "*.mp3")])
+
+    def save_with_pydub(self, fmt, filetypes):
+        segment = self.get_selected_segment()
+        if segment is None:
+            return
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=f".{fmt}",
+            filetypes=filetypes
+        )
+        if not path:
+            return
+
+        # 一旦 WAV にして pydub へ渡す
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            sf.write(tmp.name, segment, self.sample_rate)
+
+            audio = AudioSegment.from_wav(tmp.name)
+
+            if fmt == "ogg":
+                audio.export(path, format="ogg", parameters=["-q:a", "5"])
+            elif fmt == "mp3":
+                audio.export(path, format="mp3", bitrate="192k")
+
+        messagebox.showinfo("Saved", f"Saved {fmt.upper()}:\n{path}")
+
+    def get_selected_segment(self):
+        if self.audio is None:
+            return None
+        if self.start_sample >= self.end_sample:
+            messagebox.showwarning("Invalid range", "Start must be smaller than End.")
+            return None
+        return self.audio[self.start_sample:self.end_sample]
 
     # =====================================================
     # UI helpers
