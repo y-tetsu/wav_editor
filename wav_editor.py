@@ -234,14 +234,23 @@ class AudioEditor:
 
         if self.audio is not None:
             y = self.audio[:, 0]
-            x = np.arange(len(y)) * 1000 / self.sample_rate
-            self.ax.plot(x, y, linewidth=0.5)
+
+            # ★ 表示点数を制限（例：最大 10,000 点）
+            max_points = 10_000
+            step = max(1, len(y) // max_points)
+
+            y_disp = y[::step]
+            x_disp = (
+                np.arange(0, len(y), step) * 1000 / self.sample_rate
+            )
+
+            self.ax.plot(x_disp, y_disp, linewidth=0.5)
 
             s = self.start_sample * 1000 / self.sample_rate
             e = self.end_sample * 1000 / self.sample_rate
             self.ax.axvspan(s, e, color="orange", alpha=0.3)
 
-            # ★ 再生開始ライン
+            # 再生開始ライン
             if self.play_start_sample is not None:
                 t = self.play_start_sample * 1000 / self.sample_rate
                 self.play_start_line = self.ax.axvline(t, color="red")
