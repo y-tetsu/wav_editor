@@ -1,3 +1,5 @@
+import os
+import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import numpy as np
@@ -14,6 +16,10 @@ class AudioEditor:
     def __init__(self, root):
         self.root = root
         self.root.title("WAV Editor")
+
+        base_dir = os.path.dirname(__file__)
+        icon_path = os.path.join(base_dir, "ico/wav_editor.ico")
+        self.root.iconbitmap(icon_path)
 
         # ===== audio state =====
         self.audio = None
@@ -81,6 +87,12 @@ class AudioEditor:
         # ===== close hook =====
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        # ===== 起動時 引数（ドラッグ＆ドロップ）対応 =====
+        if len(sys.argv) >= 2:
+            path = sys.argv[1]
+            if path.lower().endswith(".wav") and os.path.isfile(path):
+                self.open_file(path)
+
     # =====================================================
     # UI control
     # =====================================================
@@ -123,10 +135,11 @@ class AudioEditor:
     # File
     # =====================================================
 
-    def open_file(self):
-        path = filedialog.askopenfilename(filetypes=[("WAV", "*.wav")])
-        if not path:
-            return
+    def open_file(self, path=None):
+        if path is None:
+            path = filedialog.askopenfilename(filetypes=[("WAV", "*.wav")])
+            if not path:
+                return
 
         self.audio, self.sample_rate = sf.read(path, always_2d=True)
         self.channels = self.audio.shape[1]
